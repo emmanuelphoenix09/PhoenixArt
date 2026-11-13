@@ -1,0 +1,47 @@
+name: Nettoyer les anciens artefacts
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 2 * * *"
+
+
+permissions:
+  actions: write
+
+jobs:
+  cleanup-artifacts:
+    name: Conserver les deux derniers artefacts
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Supprimer les anciens artefacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+
+            const artifacts = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              { owner, repo, per_page: 100 }
+            );
+
+            const sortedArtifacts = artifacts
+              .filter(artifact => !artifact.expired)
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+            const toDelete = sortedArtifacts.slice(2);
+
+            core.info(`Artefacts trouvés : ${sortedArtifacts.length}`);
+            core.info(`Artefacts à conserver : ${Math.min(sortedArtifacts.length, 2)}`);
+            core.info(`Artefacts à supprimer : ${toDelete.length}`);
+
+            for (const artifact of toDelete) {
+              await github.rest.actions.deleteArtifact({
+                owner,
+                repo,
+                artifact_id: artifact.id
+              });
+              core.info(`Supprimé : ${artifact.name} (${artifact.id})`);
+            }
